@@ -1,20 +1,33 @@
 const express = require("express");
 
 const app = express();
-
-// in memory storage
-const orders = {};
-const transactions = {};
-
-// allow JSON body
 app.use(express.json());
 
-// health check
+// -------------------------
+// In-memory stores (prototype only)
+// -------------------------
+const orders = {};
+const tapSessions = {};
+const transactions = {};
+
+// -------------------------
+// Helpers
+// -------------------------
+function maskPan(pan) {
+  const last4 = pan.slice(-4);
+  return "**** **** **** " + last4;
+}
+
+// -------------------------
+// Health Check
+// -------------------------
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// create order
+// -------------------------
+// Create Order
+// -------------------------
 app.post("/order/create", (req, res) => {
   const { amount } = req.body;
 
@@ -33,6 +46,9 @@ app.post("/order/create", (req, res) => {
   });
 });
 
+// -------------------------
+// Manual Payment (Always Success)
+// -------------------------
 app.post("/payment/manual", (req, res) => {
   const { orderId } = req.body;
 
@@ -48,7 +64,108 @@ app.post("/payment/manual", (req, res) => {
   });
 });
 
+// -------------------------
+// Tap to Pay - Init Session
+// -------------------------
+app.post("/payment/tap/init", (req, res) => {
+  const { orderId } = req.body;
 
+  if (!orders[orderId]) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+
+  if (orders[orderId].status === "PAID") {
+    return res.status(400).json({ error: "Order already paid" });
+  }
+
+  // One session per order
+  const existing = Object.values(tapSessions).find(
+    (s) => s.orderId === orderId && s.status !== "LOCKED"
+  );
+
+  if (existing) {
+    return res.json(existing);
+  }
+
+  const sessionId = "TAP_" + Date.now();
+
+  tapSessions[sessionId] = {
+    sessionId,
+    orderId,
+    status: "READY",
+  };
+
+  res.json(tapSessions[sessionId]);
+});
+
+// -------------------------
+// Tap to Pay - Submit Card (DAY 4 CORE)
+// -------------------------
+app.post("/payment/tap/submit", (req, res) => {
+  const { sessionId, pan, expiry } = req.body;
+
+  if (!tapSessions[sessionId]) {
+    return res.status(404).json({ error: "Invalid session" });
+  }
+
+  const session = tapSessions[sessionId];
+
+  if (session.status === "LOCKED") {
+    return res.status(400).json({ error: "Session locked" });
+  }
+
+  const order = orders[session.orderId];
+
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+
+  if (order.status === "PAID") {
+    session.status = "LOCKED";
+    return res.status(400).json({ error: "Order already paid" });
+  }
+
+  if (!pan || pan.length < 12) {
+    return res.status(400).json({ error: "Invalid PAN" });
+  }
+
+  // Mask PAN immediately
+  const maskedPan = maskPan(pan);
+
+  const transactionId = "TXN_" + Date.now();
+
+  transactions[transactionId] = {
+    transactionId,
+    orderId: session.orderId,
+    amount: order.amount,
+    maskedPan,
+    expiry,
+    paymentMethod: "TAP_TO_PAY",
+    status: "SUCCESS",
+    timestamp: new Date().toISOString(),
+  };
+
+  // Finalize
+  order.status = "PAID";
+  session.status = "LOCKED";
+
+  res.json({
+    status: "SUCCESS",
+    orderId: order.orderId,
+    transactionId,
+  });
+});
+
+// -------------------------
+// Admin - List Tap Transactions
+// -------------------------
+app.get("/admin/transactions", (req, res) => {
+  res.json(Object.values(transactions));
+});
+
+// -------------------------
+// Start Server
+// -------------------------
 app.listen(3001, () => {
   console.log("Backend running on port 3001");
 });
