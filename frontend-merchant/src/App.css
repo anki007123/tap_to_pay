@@ -170,3 +170,25 @@ body {
 .card-row .card-input {
   flex: 1;
 }
+/* ===== Success Screen ===== */
+.success-screen {
+  max-width: 420px;
+  margin: 80px auto;
+  background: white;
+  padding: 30px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.success-screen h2 {
+  margin-bottom: 20px;
+}
+
+.success-screen button {
+  margin-top: 20px;
+  padding: 12px 20px;
+  background: black;
+  color: white;
+  border: none;
+  cursor: pointer;
+}

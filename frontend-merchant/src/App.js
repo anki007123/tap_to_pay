@@ -1,6 +1,8 @@
 import { useState } from "react";
 import "./App.css";
 
+const API_BASE = "http://localhost:3001";
+
 function App() {
   const products = [
     { id: 1, name: "Wireless Headphones", price: 199 },
@@ -13,6 +15,12 @@ function App() {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("tap");
 
+  const [orderId, setOrderId] = useState(null);
+  const [sessionId, setSessionId] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [paidAmount, setPaidAmount] = useState(0);
+
   function addToCart(product) {
     setCart([...cart, product]);
   }
@@ -24,6 +32,66 @@ function App() {
   }
 
   const total = cart.reduce((sum, item) => sum + item.price, 0);
+
+  async function createOrder() {
+    const res = await fetch(`${API_BASE}/order/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: total }),
+    });
+    const data = await res.json();
+    setOrderId(data.orderId);
+    return data.orderId;
+  }
+
+  async function completePayment() {
+    setLoading(true);
+
+    try {
+      let oid = orderId;
+      if (!oid) {
+        oid = await createOrder();
+      }
+
+      if (paymentMethod === "card") {
+        await fetch(`${API_BASE}/payment/manual`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: oid }),
+        });
+      }
+
+      if (paymentMethod === "tap") {
+        const res = await fetch(`${API_BASE}/payment/tap/init`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: oid }),
+        });
+        const data = await res.json();
+        setSessionId(data.sessionId);
+      }
+      setPaidAmount(total);
+      setSuccess(true);
+      setCart([]);
+      setPaymentOpen(false);
+    } catch (e) {
+      alert("Payment failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (success) {
+    return (
+      <div className="success-screen">
+        <h2>Payment Successful</h2>
+        <p><strong>Order ID:</strong> {orderId}</p>
+        <p><strong>Amount:</strong> {paidAmount} SEK</p>
+        <p><strong>Method:</strong> {paymentMethod === "tap" ? "Tap to Pay" : "Card"}</p>
+        <button onClick={() => setSuccess(false)}>Back to Shop</button>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -64,9 +132,7 @@ function App() {
         ))}
 
         <div className="cart-footer">
-          <p>
-            <strong>Total:</strong> {total} SEK
-          </p>
+          <p><strong>Total:</strong> {total} SEK</p>
 
           <button
             disabled={cart.length === 0}
@@ -100,6 +166,7 @@ function App() {
                   className="card-input"
                   placeholder="Card number"
                   maxLength={19}
+                  inputMode="numeric"
                   onChange={(e) => {
                     let v = e.target.value.replace(/\D/g, "");
                     v = v.match(/.{1,4}/g)?.join(" ") || v;
@@ -112,9 +179,10 @@ function App() {
                     className="card-input"
                     placeholder="MM/YY"
                     maxLength={5}
+                    inputMode="numeric"
                     onChange={(e) => {
                       let v = e.target.value.replace(/\D/g, "");
-                      if (v.length >= 3) v = v.slice(0, 2) + "/" + v.slice(2);
+                      if (v.length >= 3) v = v.slice(0, 2) + "/" + v.slice(2, 4);
                       e.target.value = v;
                     }}
                   />
@@ -123,6 +191,7 @@ function App() {
                     className="card-input"
                     placeholder="CVC"
                     maxLength={4}
+                    inputMode="numeric"
                     onChange={(e) => {
                       e.target.value = e.target.value.replace(/\D/g, "");
                     }}
@@ -132,7 +201,7 @@ function App() {
             )}
           </div>
 
-          {/* Tap to Pay */}
+          {/* Tap */}
           <div
             className={`payment-option ${paymentMethod === "tap" ? "active" : ""}`}
             onClick={() => setPaymentMethod("tap")}
@@ -142,16 +211,16 @@ function App() {
             {paymentMethod === "tap" && (
               <div className="payment-details">
                 <p>Hold your card near the back of your phone</p>
-                <p>📳 NFC enabled</p>
+                {sessionId && <p>Session started</p>}
               </div>
             )}
           </div>
 
-          <button className="primary-btn">Complete Payment</button>
-          <button
-            className="secondary-btn"
-            onClick={() => setPaymentOpen(false)}
-          >
+          <button className="primary-btn" disabled={loading} onClick={completePayment}>
+            {loading ? "Processing..." : "Complete Payment"}
+          </button>
+
+          <button className="secondary-btn" onClick={() => setPaymentOpen(false)}>
             Cancel
           </button>
         </div>
