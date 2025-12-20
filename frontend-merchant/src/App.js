@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import "./App.css";
 
 /* IMPORTANT: keep backend + admin aligned */
-const API_BASE = "http://192.168.50.6:3001";
+const API_BASE =  process.env.REACT_APP_API_BASE || "http://localhost:3001";
 
 function App() {
   /* ================= PRODUCT DATA ================= */
