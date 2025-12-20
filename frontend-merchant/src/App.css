@@ -249,3 +249,20 @@ body {
   font-weight: bold;
   margin-top: 8px;
 }
+html, body {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+@media (max-width: 600px) {
+  .container,
+  .payment-drawer,
+  .cart-drawer,
+  .header {
+    padding-left: 16px;
+    padding-right: 16px;
+    box-sizing: border-box;
+  }
+}
+/* FIX: Ensure manual card inputs are visible on mobile */
