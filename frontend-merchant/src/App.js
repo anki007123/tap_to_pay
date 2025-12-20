@@ -1,7 +1,8 @@
 import { useState } from "react";
 import "./App.css";
 
-const API_BASE = "http://localhost:3001";
+/* IMPORTANT: keep backend + admin aligned */
+const API_BASE = "http://192.168.50.6:3001";
 
 function App() {
   const products = [
@@ -13,13 +14,22 @@ function App() {
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState("tap");
+
+  /* Default to card so manual option is visible */
+  const [paymentMethod, setPaymentMethod] = useState("card");
 
   const [orderId, setOrderId] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [paidAmount, setPaidAmount] = useState(0);
+
+  const [waitingForNfc, setWaitingForNfc] = useState(false);
+  // NFC dialog + timer UI state
+  const [showNfcDialog, setShowNfcDialog] = useState(false);
+  const [nfcCountdown, setNfcCountdown] = useState(15);
+  const [nfcTimedOut, setNfcTimedOut] = useState(false);
+
 
   function addToCart(product) {
     setCart([...cart, product]);
@@ -44,14 +54,51 @@ function App() {
     return data.orderId;
   }
 
+  /* NFC LOGIC — DO NOT TOUCH */
+  async function startNfcScanAndSubmit(sid) {
+    try {
+      const reader = new window.NDEFReader();
+      await reader.scan();
+      setWaitingForNfc(true);
+
+      let completed = false;
+      const completeAfterTap = async () => {
+        if (completed) return;
+        completed = true;
+
+        await fetch(`${API_BASE}/payment/tap/submit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: sid,
+            pan: "4111111111111111",
+            expiry: "12/27",
+          }),
+        });
+
+        setPaidAmount(total);
+        setSuccess(true);
+        setShowNfcDialog(false);
+        setCart([]);
+        setPaymentOpen(false);
+        setWaitingForNfc(false);
+        setLoading(false);
+      };
+
+      reader.onreadingerror = completeAfterTap;
+      reader.onreading = completeAfterTap;
+    } catch {
+      alert("NFC scan could not start/Device not supported");
+      setWaitingForNfc(false);
+      setLoading(false);
+    }
+  }
+
   async function completePayment() {
     setLoading(true);
 
     try {
-      let oid = orderId;
-      if (!oid) {
-        oid = await createOrder();
-      }
+      let oid = orderId || (await createOrder());
 
       if (paymentMethod === "card") {
         await fetch(`${API_BASE}/payment/manual`, {
@@ -59,6 +106,12 @@ function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ orderId: oid }),
         });
+
+        setPaidAmount(total);
+        setSuccess(true);
+        setCart([]);
+        setPaymentOpen(false);
+        setLoading(false);
       }
 
       if (paymentMethod === "tap") {
@@ -69,14 +122,26 @@ function App() {
         });
         const data = await res.json();
         setSessionId(data.sessionId);
+        // Show NFC dialog and start 15s countdown
+        setShowNfcDialog(true);
+        setNfcTimedOut(false);
+        setNfcCountdown(15);
+
+        let counter = 15;
+        const interval = setInterval(() => {
+          counter -= 1;
+          setNfcCountdown(counter);
+
+          if (counter <= 0) {
+            clearInterval(interval);
+            setNfcTimedOut(true);
+          }
+        }, 1000);
+        startNfcScanAndSubmit(data.sessionId);
       }
-      setPaidAmount(total);
-      setSuccess(true);
-      setCart([]);
-      setPaymentOpen(false);
-    } catch (e) {
+    } catch {
       alert("Payment failed");
-    } finally {
+      setWaitingForNfc(false);
       setLoading(false);
     }
   }
@@ -95,16 +160,13 @@ function App() {
 
   return (
     <>
-      {/* Header */}
       <div className="header">
         <h2>Tap to Pay</h2>
         <div className="cart-button" onClick={() => setCartOpen(true)}>
-          🛒
-          {cart.length > 0 && <span className="cart-count">{cart.length}</span>}
+          🛒 {cart.length > 0 && <span className="cart-count">{cart.length}</span>}
         </div>
       </div>
 
-      {/* Products */}
       <div className="container">
         <div className="products">
           {products.map((p) => (
@@ -117,103 +179,106 @@ function App() {
         </div>
       </div>
 
-      {/* Cart Drawer */}
       <div className={`cart-drawer ${cartOpen ? "open" : ""}`}>
         <h3>Your Cart</h3>
-
         {cart.map((item, i) => (
           <div key={i} className="cart-item">
             <span>{item.name}</span>
             <span>
-              {item.price} SEK{" "}
-              <button onClick={() => removeItem(i)}>✕</button>
+              {item.price} SEK <button onClick={() => removeItem(i)}>✕</button>
             </span>
           </div>
         ))}
-
         <div className="cart-footer">
           <p><strong>Total:</strong> {total} SEK</p>
-
-          <button
-            disabled={cart.length === 0}
-            onClick={() => {
-              setCartOpen(false);
-              setPaymentOpen(true);
-            }}
-          >
+          <button disabled={!cart.length} onClick={() => { setCartOpen(false); setPaymentOpen(true); }}>
             Pay Now
           </button>
-
           <button onClick={() => setCartOpen(false)}>Close</button>
         </div>
       </div>
 
-      {/* Payment Drawer */}
       {paymentOpen && (
         <div className="payment-drawer">
           <h3>Pay {total} SEK</h3>
 
-          {/* Card */}
+          {/* MANUAL CARD */}
           <div
             className={`payment-option ${paymentMethod === "card" ? "active" : ""}`}
             onClick={() => setPaymentMethod("card")}
           >
             <input type="radio" checked={paymentMethod === "card"} readOnly /> Pay with Card
-
             {paymentMethod === "card" && (
               <div className="payment-details">
-                <input
-                  className="card-input"
-                  placeholder="Card number"
-                  maxLength={19}
-                  inputMode="numeric"
-                  onChange={(e) => {
-                    let v = e.target.value.replace(/\D/g, "");
-                    v = v.match(/.{1,4}/g)?.join(" ") || v;
-                    e.target.value = v;
-                  }}
-                />
-
+                <input className="card-input" placeholder="Card number" />
                 <div className="card-row">
-                  <input
-                    className="card-input"
-                    placeholder="MM/YY"
-                    maxLength={5}
-                    inputMode="numeric"
-                    onChange={(e) => {
-                      let v = e.target.value.replace(/\D/g, "");
-                      if (v.length >= 3) v = v.slice(0, 2) + "/" + v.slice(2, 4);
-                      e.target.value = v;
-                    }}
-                  />
-
-                  <input
-                    className="card-input"
-                    placeholder="CVC"
-                    maxLength={4}
-                    inputMode="numeric"
-                    onChange={(e) => {
-                      e.target.value = e.target.value.replace(/\D/g, "");
-                    }}
-                  />
+                  <input className="card-input" placeholder="MM/YY" />
+                  <input className="card-input" placeholder="CVC" />
                 </div>
               </div>
             )}
           </div>
+{/* NFC DIALOG OVERLAY – ADD BELOW */}
+      {showNfcDialog && (
+        <div className="nfc-overlay">
+          <div className="nfc-dialog">
 
-          {/* Tap */}
+            {!nfcTimedOut && (
+              <>
+                <h3>Tap your card</h3>
+
+                <div className="nfc-animation">
+                  <div className="phone" />
+                  <div className="card" />
+                </div>
+
+                <p>Hold your card near the back of your phone</p>
+                <p className="countdown">{nfcCountdown}s</p>
+              </>
+            )}
+
+            {nfcTimedOut && (
+              <>
+                <h3>No card detected</h3>
+                <p>Please try again</p>
+
+                <button
+                  className="primary-btn"
+                  onClick={() => {
+                    setShowNfcDialog(false);
+                    setWaitingForNfc(false);
+                  }}
+                >
+                  Retry
+                </button>
+
+                <button
+                  className="secondary-btn"
+                  onClick={() => {
+                    setShowNfcDialog(false);
+                    setPaymentOpen(false);
+                    setWaitingForNfc(false);
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+
+          </div>
+        </div>
+      )}
+          {/* TAP TO PAY */}
           <div
             className={`payment-option ${paymentMethod === "tap" ? "active" : ""}`}
             onClick={() => setPaymentMethod("tap")}
           >
             <input type="radio" checked={paymentMethod === "tap"} readOnly /> Tap to Pay
-
-            {paymentMethod === "tap" && (
-              <div className="payment-details">
-                <p>Hold your card near the back of your phone</p>
-                {sessionId && <p>Session started</p>}
-              </div>
-            )}
+            <div className="payment-details">
+              {!waitingForNfc && <p>Hold your card near the back of your phone</p>}
+              {waitingForNfc && <p><strong>Waiting for card...</strong></p>}
+              {sessionId && <span style={{ display: "none" }}>{sessionId}</span>}
+            </div>
           </div>
 
           <button className="primary-btn" disabled={loading} onClick={completePayment}>

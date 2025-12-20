@@ -192,3 +192,60 @@ body {
   border: none;
   cursor: pointer;
 }
+/* NFC full-screen overlay */
+.nfc-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nfc-dialog {
+  background: #fff;
+  width: 90%;
+  max-width: 320px;
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+}
+
+.nfc-animation {
+  position: relative;
+  height: 140px;
+  margin: 20px 0;
+}
+
+.nfc-animation .phone {
+  width: 70px;
+  height: 120px;
+  border: 3px solid #111;
+  border-radius: 12px;
+  margin: auto;
+}
+
+.nfc-animation .card {
+  width: 60px;
+  height: 40px;
+  background: #111;
+  border-radius: 6px;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  animation: tapCard 1.5s infinite;
+}
+
+@keyframes tapCard {
+  0% { top: 0; opacity: 0.3; }
+  50% { top: 50px; opacity: 1; }
+  100% { top: 0; opacity: 0.3; }
+}
+
+.countdown {
+  font-size: 20px;
+  font-weight: bold;
+  margin-top: 8px;
+}
